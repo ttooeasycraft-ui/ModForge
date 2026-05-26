@@ -10,8 +10,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { motion, AnimatePresence } from "framer-motion";
 
-// Railway compile server URL — set VITE_COMPILE_SERVER_URL in GitHub Secrets
-const COMPILE_SERVER = (import.meta.env.VITE_COMPILE_SERVER_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+// Railway compile server URL
+const COMPILE_SERVER =
+  ((import.meta.env.VITE_COMPILE_SERVER_URL as string | undefined) ?? "https://modforge-compile-production.up.railway.app")
+    .replace(/\/$/, "");
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type Message = {
