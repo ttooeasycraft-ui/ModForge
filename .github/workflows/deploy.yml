@@ -39,7 +39,7 @@ jobs:
         run: pnpm --filter @workspace/modforge run build
         env:
           PORT: "3000"
-          BASE_PATH: "/"
+          BASE_PATH: "/ModForge/"
           NODE_ENV: production
 
       - name: Upload artifact
