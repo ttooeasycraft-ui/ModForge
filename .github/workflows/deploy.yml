@@ -41,6 +41,7 @@ jobs:
           PORT: "3000"
           BASE_PATH: "/ModForge/"
           NODE_ENV: production
+          VITE_COMPILE_SERVER_URL: ${{ secrets.VITE_COMPILE_SERVER_URL }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
