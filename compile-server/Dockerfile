@@ -15,24 +15,24 @@ RUN curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSIO
     rm /tmp/gradle.zip
 ENV PATH="/opt/gradle-${GRADLE_VERSION}/bin:${PATH}"
 
-# Persistent Gradle cache directory baked into the image
+# Persistent Gradle cache baked into the image layer
 ENV GRADLE_USER_HOME=/gradle-cache
 ENV GRADLE_OPTS="-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx512m -Dfile.encoding=UTF-8"
 
-# Pre-warm Gradle + Fabric Loom + Minecraft 1.20.4 dependencies
-# This downloads all heavy artifacts once at build time so
-# actual user builds take seconds instead of minutes.
-COPY warmup/ /tmp/warmup/
+# Pre-warm: build a minimal Fabric 1.20.4 project so all heavy Maven
+# artifacts are cached inside the image — user builds start in seconds.
+# Paths below are relative to the REPO ROOT (build context = /).
+COPY compile-server/warmup/ /tmp/warmup/
 RUN cd /tmp/warmup && \
     gradle build --no-daemon --warning-mode=none -x test || true && \
     rm -rf /tmp/warmup /tmp/warmup-*
 
 # Install Node dependencies
 WORKDIR /app
-COPY package.json ./
+COPY compile-server/package.json ./
 RUN npm install --omit=dev
 
-COPY server.js ./
+COPY compile-server/server.js ./
 
 EXPOSE 3000
 CMD ["node", "server.js"]
