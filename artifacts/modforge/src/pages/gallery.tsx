@@ -1,0 +1,226 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import { Search, Download, Star, Filter, ExternalLink, TrendingUp, Clock, Zap, RefreshCw } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+
+type ModrinthMod = {
+  project_id: string;
+  slug: string;
+  title: string;
+  description: string;
+  icon_url?: string;
+  downloads: number;
+  follows: number;
+  author: string;
+  categories: string[];
+  versions: string[];
+  date_created: string;
+  date_modified: string;
+  latest_version?: string;
+  client_side: string;
+  server_side: string;
+};
+
+const LOADERS = ["all","fabric","forge","neoforge","quilt","spigot","paper"] as const;
+const TABS = [
+  { id: "downloads", label: "Mais Baixados", icon: TrendingUp },
+  { id: "newest",    label: "Mais Novos",    icon: Zap        },
+  { id: "updated",   label: "Atualizados",   icon: RefreshCw  },
+] as const;
+type TabId = typeof TABS[number]["id"];
+type LoaderId = typeof LOADERS[number];
+
+const CATEGORY_COLORS: Record<string, string> = {
+  optimization: "bg-green-500/15 text-green-400 border-green-500/25",
+  "utility":    "bg-blue-500/15 text-blue-400 border-blue-500/25",
+  decoration:   "bg-pink-500/15 text-pink-400 border-pink-500/25",
+  library:      "bg-purple-500/15 text-purple-400 border-purple-500/25",
+  adventure:    "bg-amber-500/15 text-amber-400 border-amber-500/25",
+  magic:        "bg-violet-500/15 text-violet-400 border-violet-500/25",
+  technology:   "bg-cyan-500/15 text-cyan-400 border-cyan-500/25",
+};
+
+function fmt(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(0)}K`;
+  return String(n);
+}
+
+function ModCard({ mod, index }: { mod: ModrinthMod; index: number }) {
+  const displayCats = mod.categories.filter(c => !LOADERS.includes(c as LoaderId)).slice(0, 2);
+  return (
+    <motion.a href={`https://modrinth.com/mod/${mod.slug}`} target="_blank" rel="noopener noreferrer"
+      initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }}
+      whileHover={{ y: -4, transition: { duration: 0.15 } }}
+      className="bg-card/50 border border-white/8 rounded-2xl p-4 flex flex-col gap-3 hover:border-primary/30 hover:bg-card/80 transition-all group cursor-pointer">
+      <div className="flex items-start gap-3">
+        {mod.icon_url ? (
+          <img src={mod.icon_url} alt={mod.title} className="w-12 h-12 rounded-xl object-cover shrink-0 bg-white/5" />
+        ) : (
+          <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-xl shrink-0">
+            🧩
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <h3 className="font-semibold text-white text-sm leading-snug truncate group-hover:text-primary transition-colors">
+            {mod.title}
+          </h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">por {mod.author}</p>
+        </div>
+        <ExternalLink className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0 mt-0.5 group-hover:text-primary/60 transition-colors" />
+      </div>
+
+      <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">{mod.description}</p>
+
+      <div className="flex flex-wrap gap-1">
+        {displayCats.map(cat => (
+          <span key={cat}
+            className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${CATEGORY_COLORS[cat] ?? "bg-white/5 text-white/50 border-white/10"}`}>
+            {cat}
+          </span>
+        ))}
+        {mod.versions.slice(-1).map(v => (
+          <span key={v} className="text-[10px] px-1.5 py-0.5 rounded border bg-primary/8 text-primary/70 border-primary/20">
+            {v}
+          </span>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-4 text-[11px] text-muted-foreground mt-auto pt-1 border-t border-white/5">
+        <span className="flex items-center gap-1"><Download className="w-3 h-3" /> {fmt(mod.downloads)}</span>
+        <span className="flex items-center gap-1"><Star className="w-3 h-3" /> {fmt(mod.follows)}</span>
+        <span className="ml-auto text-[10px] opacity-60">{new Date(mod.date_modified).toLocaleDateString("pt-BR")}</span>
+      </div>
+    </motion.a>
+  );
+}
+
+export default function Gallery() {
+  const [tab, setTab] = useState<TabId>("downloads");
+  const [loader, setLoader] = useState<LoaderId>("fabric");
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Debounce search
+  const handleSearch = (v: string) => {
+    setSearch(v);
+    clearTimeout((handleSearch as { _t?: ReturnType<typeof setTimeout> })._t);
+    (handleSearch as { _t?: ReturnType<typeof setTimeout> })._t = setTimeout(() => setDebouncedSearch(v), 500);
+  };
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["modrinth", tab, loader, debouncedSearch],
+    queryFn: async () => {
+      const facets: string[][] = [["project_type:mod"]];
+      if (loader !== "all") facets.push([`categories:${loader}`]);
+      const url = new URL("https://api.modrinth.com/v2/search");
+      url.searchParams.set("limit", "24");
+      url.searchParams.set("index", tab);
+      if (debouncedSearch) url.searchParams.set("query", debouncedSearch);
+      url.searchParams.set("facets", JSON.stringify(facets));
+      const res = await fetch(url.toString(), { headers: { "User-Agent": "ModForge/1.0 (modforge@github.io)" } });
+      if (!res.ok) throw new Error("Erro ao buscar mods");
+      return res.json() as Promise<{ hits: ModrinthMod[]; total_hits: number }>;
+    },
+  });
+
+  const mods = data?.hits ?? [];
+
+  return (
+    <div className="min-h-screen bg-[#070a12] text-white">
+      {/* Header */}
+      <div className="sticky top-0 z-20 bg-[#070a12]/95 backdrop-blur-xl border-b border-white/8 px-4 pt-4 pb-3">
+        <div className="max-w-4xl mx-auto">
+          <div className="flex items-center gap-3 mb-3">
+            <h1 className="font-bold text-white text-lg flex-1">Galeria de Mods</h1>
+            <button onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all ${showFilters ? "border-primary bg-primary/15 text-primary" : "border-white/15 text-muted-foreground hover:border-white/30"}`}>
+              <Filter className="w-3.5 h-3.5" /> Filtros
+            </button>
+          </div>
+
+          {/* Search */}
+          <div className="relative mb-3">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input value={search} onChange={e => handleSearch(e.target.value)}
+              placeholder="Buscar mods..." className="pl-9 bg-white/5 border-white/12 h-10 rounded-xl" />
+          </div>
+
+          {/* Loader filter */}
+          <AnimatePresence>
+            {showFilters && (
+              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                <div className="flex gap-2 flex-wrap pb-3">
+                  {LOADERS.map(l => (
+                    <button key={l} onClick={() => setLoader(l)}
+                      className={`px-3 py-1 rounded-lg text-xs font-medium border transition-all capitalize ${loader === l ? "bg-primary text-black border-primary" : "border-white/15 text-muted-foreground hover:border-white/30"}`}>
+                      {l === "all" ? "Todos" : l}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Tabs */}
+          <div className="flex gap-1">
+            {TABS.map(t => {
+              const Icon = t.icon;
+              return (
+                <button key={t.id} onClick={() => setTab(t.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${tab === t.id ? "bg-primary/20 text-primary border border-primary/30" : "text-muted-foreground hover:text-white"}`}>
+                  <Icon className="w-3.5 h-3.5" /> {t.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="max-w-4xl mx-auto px-4 py-6">
+        {isLoading && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <div key={i} className="bg-card/30 rounded-2xl p-4 animate-pulse h-48 border border-white/5" />
+            ))}
+          </div>
+        )}
+
+        {error && (
+          <div className="text-center py-20">
+            <p className="text-red-400 mb-2">Erro ao carregar mods</p>
+            <p className="text-muted-foreground text-sm mb-6">Verifique sua conexão com a internet</p>
+            <Button onClick={() => refetch()} variant="outline" className="gap-2">
+              <RefreshCw className="w-4 h-4" /> Tentar novamente
+            </Button>
+          </div>
+        )}
+
+        {!isLoading && !error && mods.length === 0 && (
+          <div className="text-center py-20">
+            <p className="text-4xl mb-4">🔍</p>
+            <p className="text-white font-semibold mb-2">Nenhum mod encontrado</p>
+            <p className="text-muted-foreground text-sm">Tente mudar os filtros ou a busca</p>
+          </div>
+        )}
+
+        {!isLoading && mods.length > 0 && (
+          <>
+            <p className="text-xs text-muted-foreground mb-4">
+              {data?.total_hits?.toLocaleString("pt-BR")} mods encontrados · Dados do{" "}
+              <a href="https://modrinth.com" target="_blank" rel="noopener noreferrer" className="text-primary/80 hover:text-primary">Modrinth</a>
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {mods.map((mod, i) => <ModCard key={mod.project_id} mod={mod} index={i} />)}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
